@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -48,16 +48,76 @@ def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
     return new_user
 
 
-@router.post("/login", response_model=Token)
-def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
+@router.post(
+    "/login",
+    response_model=Token,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/x-www-form-urlencoded": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "username": {"type": "string"},
+                            "password": {"type": "string"},
+                        },
+                        "required": ["username", "password"],
+                    }
+                },
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "username": {"type": "string"},
+                            "password": {"type": "string"},
+                        },
+                        "required": ["username", "password"],
+                    }
+                },
+            }
+        }
+    },
+)
+async def login_user(request: Request, db: Session = Depends(get_db)):
     """
     Authenticate user and return JWT access token:
-    - Verifies username and password
-    - Generates JWT access token
-    - Returns access token with token type
+    - Supports both form data (Swagger UI OAuth2 modal) and JSON body
+    - Verifies username and password against database
+    - Generates and returns JWT access token with token type
     """
-    user = db.query(User).filter(User.username == login_data.username).first()
-    if not user or not verify_password(login_data.password, user.hashed_password):
+    content_type = request.headers.get("content-type", "")
+    username = None
+    password = None
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            username = body.get("username")
+            password = body.get("password")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid JSON body",
+            )
+    else:
+        try:
+            form = await request.form()
+            username = form.get("username")
+            password = form.get("password")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid form data",
+            )
+
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Username and password are required",
+        )
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
