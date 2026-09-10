@@ -1,10 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
+from app import models
 from app.routers import auth, transactions
+
+from sqlalchemy import text
 
 # Create database tables automatically
 Base.metadata.create_all(bind=engine)
+
+# Ensure column compatibility if table was pre-existing in PostgreSQL
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
+        conn.commit()
+except Exception:
+    pass
 
 app = FastAPI(
     title="Personal Expense Tracker API",
